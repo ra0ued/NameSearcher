@@ -1,59 +1,41 @@
 <?php
 
-abstract class NameSearcher
+declare (strict_types = 1);
+
+interface SearcherInterface
 {
     /**
-     * @var PDO
-     */
-    private $pdo;
-
-    /**
-     * @var string
-     */
-    protected $format;
-
-    public function __construct(\PDO $PDO)
-    {
-        $this->pdo = $PDO;
-    }
-
-    /**
      * @param string $surname
-     * @return array
      */
-    protected function searchBySurname(string $surname): array
+    public function search(string $surname);
+}
+
+abstract class Searcher implements SearcherInterface
+{
+    /**
+     * @var DbUtil
+     */
+    protected $db;
+    /**
+     * @var OutputInterface
+     */
+    protected $output;
+
+    public function __construct(\DbUtil $db, \OutputInterface $output)
     {
-        $sql = 'SELECT last_name
-        FROM name
-        WHERE last_name LIKE ?
-        ORDER BY last_name';
-
-        $statement = $this->pdo->prepare($sql);
-        $statement->execute([$surname . '%']);
-
-        $results = [];
-
-        while ($result = $statement->fetch()) {
-            $results[] = $result['last_name'];
-        }
-
-        if (!$results) {
-            echo 'No matches found in DB.' . PHP_EOL;
-
-            exit;
-        }
-
-        return $results;
+        $this->db = $db;
+        $this->output = $output;
     }
 
     /**
      * @param string $result
+     * @param string $format
      */
-    protected function saveToFile(string $result)
+    protected function saveToFile(string $result, string $format)
     {
         try {
-            file_put_contents(__DIR__ . '/SearchResults.' . $this->format, $result);
-            echo 'Success! Check your SearchResults.' . $this->format . PHP_EOL;
+            file_put_contents(__DIR__ . '/SearchResults.' . $format, $result);
+            echo 'Success! Check your SearchResults.' . $format . PHP_EOL;
         } catch (\Exception $e) {
             echo $e->getMessage() . PHP_EOL;
 
@@ -62,20 +44,64 @@ abstract class NameSearcher
     }
 }
 
-class HtmlResult extends NameSearcher
+class NameSearcher extends Searcher
 {
     /**
-     * @var string
+     * @param string $surname
+     */
+    public function search(string $surname)
+    {
+        $nameList = $this->db->searchBySurname($surname);
+        $results = $this->output->format($nameList);
+
+        $this->saveToFile($results, $this->output->getFormat());
+    }
+}
+
+
+interface OutputInterface
+{
+    /**
+     * @param array $nameList
+     * @return string
+     */
+    public function format(array $nameList): string;
+
+    /**
+     * @return string
+     */
+    public function getFormat(): string;
+}
+
+abstract class Output implements OutputInterface
+{
+    /**
+     * @var string $format
+     */
+    protected $format = '';
+
+    /**
+     * @return string
+     */
+    public function getFormat(): string
+    {
+        return $this->format;
+    }
+}
+
+class HtmlOutput extends Output
+{
+    /**
+     * @var string $format
      */
     protected $format = 'html';
 
     /**
-     * @param string $surname
+     * @param array $nameList
+     * @return string
      */
-    public function saveResult(string $surname)
+    public function format(array $nameList): string
     {
-        $results = $this->searchBySurname($surname);
-
         $head = '
 <html>
 	<head>
@@ -93,17 +119,17 @@ class HtmlResult extends NameSearcher
 </html>
 ';
         $body = '';
-        foreach ($results as $result) {
+        foreach ($nameList as $result) {
             $body .= '<li>' . $result . '</li>';
         }
 
         $html = $head . $body . $footer;
 
-        $this->saveToFile($html);
+        return $html;
     }
 }
 
-class JsonResult extends NameSearcher
+class JsonOutput extends Output
 {
     /**
      * @var string
@@ -111,18 +137,18 @@ class JsonResult extends NameSearcher
     protected $format = 'json';
 
     /**
-     * @param string $surname
+     * @param array $nameList
+     * @return string
      */
-    public function saveResult(string $surname)
+    public function format(array $nameList): string
     {
-        $results = $this->searchBySurname($surname);
-        $json = json_encode($results);
+        $json = json_encode($nameList);
 
         if (!$json) {
             echo 'JSON encoding failed.';
         }
 
-        $this->saveToFile($json);
+        return $json;
     }
 }
 
@@ -194,6 +220,60 @@ class DbUtil
         }
     }
 
+    public function initDb()
+    {
+        $sql = 'CREATE TABLE name (
+        id int NOT NULL AUTO_INCREMENT,
+        last_name varchar(255) NOT NULL,
+        first_name varchar(255),
+        age int,
+        PRIMARY KEY (ID)
+        );
+        INSERT INTO table_name (last_name, first_name, age)
+        VALUES (`Skinner`, `Walter`, `43`);
+        INSERT INTO table_name (last_name, first_name, age)
+        VALUES (`Skin`, `William`, `12`);
+        INSERT INTO table_name (last_name, first_name, age)
+        VALUES (`Scully`, `Dana`, `28`);
+        INSERT INTO table_name (last_name, first_name, age)
+        VALUES (`Scull`, `Kyle`, `8`);
+        INSERT INTO table_name (last_name, first_name, age)
+        VALUES (`Mulder`, `Fox`, `31`);
+        ';
+
+        $statement = $this->getPDO()->prepare($sql);
+        $statement->execute();
+    }
+
+    /**
+     * @param string $surname
+     * @return array
+     */
+    public function searchBySurname(string $surname): array
+    {
+        $sql = 'SELECT last_name
+        FROM name
+        WHERE last_name LIKE ?
+        ORDER BY last_name';
+
+        $statement = $this->getPDO()->prepare($sql);
+        $statement->execute([$surname . '%']);
+
+        $results = [];
+
+        while ($result = $statement->fetch()) {
+            $results[] = $result['last_name'];
+        }
+
+        if (!$results) {
+            echo 'No matches found in DB.' . PHP_EOL;
+
+            exit;
+        }
+
+        return $results;
+    }
+
     /**
      * @return array
      */
@@ -208,13 +288,12 @@ class DbUtil
 }
 
 $cli = new CommandLineUtil();
-$dbUtil = new DbUtil();
-
-$pdo = $dbUtil->getPDO();
 $searchWord = $cli->processOptions();
+$dbUtil = new DbUtil();
+$dbUtil->initDb();
 
-$htmlResult = new HtmlResult($pdo);
-$htmlResult->saveResult($searchWord);
+$htmlSearch = new NameSearcher($dbUtil, new \HtmlOutput());
+$htmlSearch->search($searchWord);
 
-$jsonResult = new JsonResult($pdo);
-$jsonResult->saveResult($searchWord);
+$jsonSearch = new NameSearcher($dbUtil, new \JsonOutput());
+$jsonSearch->search($searchWord);
