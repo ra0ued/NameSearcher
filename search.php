@@ -198,6 +198,12 @@ class CommandLineUtil
             $searchParameter = $options['surname'];
         }
 
+        if(!preg_match("/^[a-zA-Z]/", $searchParameter)) {
+            echo 'Search query must content letters only.' . PHP_EOL;
+
+            exit;
+        }
+
         return $searchParameter;
     }
 }
@@ -241,8 +247,14 @@ class DbUtil
         VALUES (`Mulder`, `Fox`, `31`);
         ';
 
-        $statement = $this->getPDO()->prepare($sql);
-        $statement->execute();
+        try {
+            $statement = $this->getPDO()->prepare($sql);
+            $statement->execute();
+        } catch (\Exception $e){
+            echo $e->getMessage() . PHP_EOL;
+
+            exit;
+        }
     }
 
     /**
@@ -256,8 +268,14 @@ class DbUtil
         WHERE last_name LIKE ?
         ORDER BY last_name';
 
-        $statement = $this->getPDO()->prepare($sql);
-        $statement->execute([$surname . '%']);
+        try {
+            $statement = $this->getPDO()->prepare($sql);
+            $statement->execute([$surname . '%']);
+        } catch (\Exception $e){
+            echo $e->getMessage() . PHP_EOL;
+
+            exit;
+        }
 
         $results = [];
 
